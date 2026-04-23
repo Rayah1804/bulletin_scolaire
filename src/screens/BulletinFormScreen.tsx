@@ -21,7 +21,7 @@ import * as Sharing from 'expo-sharing';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { getStudents } from '../storage/studentsRepo';
 import { saveBulletin, getBulletins } from '../storage/bulletinsRepo';
-import { getMaxTrimestres, getTrimestresArray, updateMaxTrimestres } from '../storage/configRepo';
+import { getMaxTrimestres, getTrimestresArray, updateMaxTrimestres, getPeriodName, updatePeriodName } from '../storage/configRepo';
 import { Picker } from '@react-native-picker/picker';
 import { Bulletin } from '../types/bulletin';
 import { Student } from '../types/student';
@@ -61,10 +61,10 @@ type MatiereRow = {
 
 export default function BulletinFormScreen({ navigation, route }: Props) {
     // Gestion du changement de nombre de trimestres
-    const handleMaxTrimestresChange = async (value: 3 | 5) => {
+    const handleMaxTrimestresChange = (value: 3 | 5) => {
+      setTrimestre(1); // reset au 1er trimestre en premier
       setMaxTrimestres(value);
-      await updateMaxTrimestres(value);
-      setTrimestre(1); // reset au 1er trimestre si besoin
+      updateMaxTrimestres(value); // asynchrone mais pas besoin d'attendre pour l'UI
       setRefreshKey(prev => prev + 1);
     };
   const { theme, hydrateTheme } = useTheme();
@@ -76,6 +76,7 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
   const [student, setStudent] = useState<Student | null>(null);
   const [schoolYear, setSchoolYear] = useState('');
   const [maxTrimestres, setMaxTrimestres] = useState<3 | 5>(5);
+  const [periodName, setPeriodName] = useState('TRIMESTRE');
   const [trimestre, setTrimestre] = useState<1 | 2 | 3 | 4 | 5>(1);
   const [matieres, setMatieres] = useState<MatiereRow[]>(defaultMatieres.map((m) => ({
     ...m,
@@ -107,8 +108,10 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
     (async () => {
       await hydrateTheme();
       const max = await getMaxTrimestres();
+      const pName = await getPeriodName();
       if (!mounted) return;
       setMaxTrimestres(max);
+      setPeriodName(pName);
       
       if (!studentId) return;
       const list = await getStudents();
@@ -451,7 +454,7 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
       lines.push(`${numeroPasseLabel}: ${student.numeroPasse}`);
     }
     lines.push(`Année scolaire: ${schoolYear}`);
-    lines.push(`Trimestre: ${trimestre}`);
+    lines.push(`${periodName}: ${trimestre}`);
     lines.push('');
     lines.push('MATIERES | Coef | N1 | N2 | EXAM | MG | Signature');
     lines.push('-'.repeat(80));
@@ -475,7 +478,7 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
       lines.push('');
       lines.push('ÉVOLUTION DES MOYENNES :');
       evolutionInfo.forEach((item) => {
-        lines.push(`TRIM${item.trimestre} : ${item.moyenne !== null ? item.moyenne.toFixed(2).replace('.', ',') : '—'} / Position ${item.position ?? '—'} / ${item.total} élèves / Classement: ${item.classement}`);
+        lines.push(`${periodName.substring(0, 4)}${item.trimestre} : ${item.moyenne !== null ? item.moyenne.toFixed(2).replace('.', ',') : '—'} / Position ${item.position ?? '—'} / ${item.total} élèves / Classement: ${item.classement}`);
       });
     }
     return lines.join('\n');
@@ -513,14 +516,14 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
 
     const termLabel =
       trimestre === maxTrimestres
-        ? 'TRIMESTRE FINAL'
+        ? `${periodName} FINAL`
         : trimestre === 1
-        ? 'PREMIER TRIMESTRE'
+        ? `PREMIER ${periodName}`
         : trimestre === 2
-        ? 'DEUXIÈME TRIMESTRE'
+        ? `DEUXIÈME ${periodName}`
         : trimestre === 3
-        ? 'TROISIÈME TRIMESTRE'
-        : 'QUATRIÈME TRIMESTRE';
+        ? `TROISIÈME ${periodName}`
+        : `QUATRIÈME ${periodName}`;
 
     const decision = trimestreInfo?.classement ?? '';
     const check = (label: string) => (decision === label ? '☑' : '☐');
@@ -534,7 +537,7 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
           const evo = evolutionInfo.find(e => e.trimestre === item.bulletin.trimestre);
           return `
           <tr>
-            <td>TRIM${item.bulletin.trimestre}</td>
+            <td>${periodName.substring(0, 4)}${item.bulletin.trimestre}</td>
             <td>${item.moyenne?.toFixed(2).replace('.', ',') ?? ''}</td>
             <td>${item.rank?.position ?? ''}</td>
             <td>${item.rank?.total ?? ''}</td>
@@ -544,11 +547,11 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
         .join('');
 
       historySection = `
-        <div class="history-title">HISTORIQUE DES BULLETINS</div>
+        <div class="history-title">HISTORIQUE DES ÉVALUATIONS</div>
         <table class="history-table">
           <thead>
             <tr>
-              <th>Trimestre</th>
+              <th>Période</th>
               <th>Moyenne</th>
               <th>Rang</th>
               <th>Total élèves</th>
@@ -714,17 +717,32 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <View style={{ padding: 10, flexDirection: 'row', alignItems: 'center', backgroundColor: '#f5f5f5' }}>
-        <Text style={{ marginRight: 10, fontWeight: 'bold' }}>Nombre de trimestres :</Text>
-        <Picker
-          selectedValue={maxTrimestres}
-          style={{ width: 120 }}
-          onValueChange={(itemValue) => handleMaxTrimestresChange(itemValue)}
-          mode="dropdown"
-        >
-          <Picker.Item label="3" value={3} />
-          <Picker.Item label="5" value={5} />
-        </Picker>
+      <View style={{ padding: 10, flexDirection: 'row', alignItems: 'center', backgroundColor: '#f5f5f5', flexWrap: 'wrap', gap: 10 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <Text style={{ marginRight: 10, fontWeight: 'bold' }}>Nombre de périodes :</Text>
+          <Picker
+            selectedValue={maxTrimestres}
+            style={{ width: 120 }}
+            onValueChange={(itemValue) => handleMaxTrimestresChange(itemValue)}
+            mode="dropdown"
+          >
+            <Picker.Item label="3" value={3} />
+            <Picker.Item label="5" value={5} />
+          </Picker>
+        </View>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <Text style={{ marginRight: 10, fontWeight: 'bold' }}>Terme :</Text>
+          <TextInput
+            style={{ backgroundColor: '#fff', borderWidth: 1, borderColor: '#ccc', borderRadius: 6, paddingHorizontal: 10, paddingVertical: 5, width: 120, color: '#000' }}
+            value={periodName}
+            onChangeText={(t) => {
+              const val = t.toUpperCase();
+              setPeriodName(val);
+              updatePeriodName(val);
+            }}
+            placeholder="TRIMESTRE"
+          />
+        </View>
       </View>
       <KeyboardAvoidingView
         style={styles.safe}
@@ -838,11 +856,11 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
           {/* Tableau des matières */}
           <View style={styles.tableCard}>
             <Text style={styles.tableTitle}>
-              {trimestre === maxTrimestres ? 'TRIMESTRE FINAL' :
-                trimestre === 1 ? 'PREMIER TRIMESTRE' :
-                trimestre === 2 ? 'DEUXIÈME TRIMESTRE' :
-                trimestre === 3 ? 'TROISIÈME TRIMESTRE' :
-                'QUATRIÈME TRIMESTRE'}
+              {trimestre === maxTrimestres ? `${periodName} FINAL` :
+                trimestre === 1 ? `PREMIER ${periodName}` :
+                trimestre === 2 ? `DEUXIÈME ${periodName}` :
+                trimestre === 3 ? `TROISIÈME ${periodName}` :
+                `QUATRIÈME ${periodName}`}
             </Text>
             <ScrollView horizontal={!isTablet} showsHorizontalScrollIndicator={false}>
               <View style={[styles.tableInner, isTablet && styles.tableInnerFull]}>
@@ -967,7 +985,7 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
                   const evo = evolutionInfo.find(e => e.trimestre === bulletin.trimestre);
                   return (
                     <View key={bulletin.id} style={styles.historyRow}>
-                      <Text style={styles.historyLabel}>T{bulletin.trimestre}</Text>
+                      <Text style={styles.historyCell}>{periodName.substring(0, 4)}{bulletin.trimestre}</Text>
                       <Text style={styles.historyValue}>Moyenne: {moyenne !== null ? moyenne.toFixed(2).replace('.', ',') : '—'}</Text>
                       <Text style={styles.historyValue}>Rang: {rank?.position != null ? `${rank.position} / ${rank.total}` : '—'}</Text>
                       <Text style={styles.historyValue}>Décision: {evo?.classement || '—'}</Text>

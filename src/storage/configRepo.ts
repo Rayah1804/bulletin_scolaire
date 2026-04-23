@@ -2,13 +2,14 @@ import { readEncryptedJson, writeEncryptedJson } from './secureDb';
 
 export interface AppConfig {
   maxTrimestres: 3 | 5;
-  // Autres configurations futures
+  periodName: string;
 }
 
 const CONFIG_KEY = 'db:config:v1';
 
 const DEFAULT_CONFIG: AppConfig = {
   maxTrimestres: 5,
+  periodName: 'TRIMESTRE',
 };
 
 export async function getConfig(): Promise<AppConfig> {
@@ -37,6 +38,16 @@ export async function updateMaxTrimestres(maxTrimestres: 3 | 5): Promise<void> {
 export async function getMaxTrimestres(): Promise<3 | 5> {
   const config = await getConfig();
   return config.maxTrimestres;
+}
+
+export async function updatePeriodName(periodName: string): Promise<void> {
+  const config = await getConfig();
+  await setConfig({ ...config, periodName });
+}
+
+export async function getPeriodName(): Promise<string> {
+  const config = await getConfig();
+  return config.periodName || 'TRIMESTRE';
 }
 
 export function getTrimestresArray(maxTrimestres: 3 | 5): number[] {
