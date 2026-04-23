@@ -430,8 +430,15 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
     if (!student) return '';
     const formatDate = (dateStr: string) => {
       if (!dateStr) return '....................';
-      const [year, month, day] = dateStr.split('-');
-      return `${day}/${month}/${year}`;
+      if (dateStr.includes('/')) return dateStr;
+      if (dateStr.includes('-')) {
+        const parts = dateStr.split('-');
+        if (parts.length === 3) {
+          const [year, month, day] = parts;
+          return `${day}/${month}/${year}`;
+        }
+      }
+      return dateStr;
     };
     const lines: string[] = [];
     lines.push('===== BULLETIN SCOLAIRE =====');
@@ -478,8 +485,15 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
     if (!student) return '';
     const formatDate = (dateStr: string) => {
       if (!dateStr) return '....................';
-      const [year, month, day] = dateStr.split('-');
-      return `${day}/${month}/${year}`;
+      if (dateStr.includes('/')) return dateStr;
+      if (dateStr.includes('-')) {
+        const parts = dateStr.split('-');
+        if (parts.length === 3) {
+          const [year, month, day] = parts;
+          return `${day}/${month}/${year}`;
+        }
+      }
+      return dateStr;
     };
     const rows = matieres
       .map((row) => {
