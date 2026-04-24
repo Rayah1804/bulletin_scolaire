@@ -411,11 +411,13 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
     }
   }
 
-  async function onExport() {
+  async function exportWithFormat(format: 'A4' | 'A5') {
     if (!student) return;
     try {
-      const html = await generateBulletinHtml();
-      const file = await Print.printToFileAsync({ html });
+      const html = await generateBulletinHtml(format);
+      const width = format === 'A4' ? 595 : 420;
+      const height = format === 'A4' ? 842 : 595;
+      const file = await Print.printToFileAsync({ html, width, height });
       await Sharing.shareAsync(file.uri, {
         mimeType: 'application/pdf',
         dialogTitle: `Bulletin ${student.nom} ${student.prenom} - T${trimestre}`,
@@ -427,6 +429,19 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
         title: `Bulletin ${student.nom} ${student.prenom} - T${trimestre}`,
       });
     }
+  }
+
+  function onExport() {
+    if (!student) return;
+    Alert.alert(
+      'Format du PDF',
+      'Choisissez le format du bulletin à exporter :',
+      [
+        { text: 'A4 (Standard)', onPress: () => exportWithFormat('A4') },
+        { text: 'A5 (Compact)', onPress: () => exportWithFormat('A5') },
+        { text: 'Annuler', style: 'cancel' },
+      ]
+    );
   }
 
   function formatBulletinText(): string {
@@ -484,8 +499,9 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
     return lines.join('\n');
   }
 
-  async function generateBulletinHtml(): Promise<string> {
+  async function generateBulletinHtml(format: 'A4' | 'A5' = 'A4'): Promise<string> {
     if (!student) return '';
+    const isA5 = format === 'A5';
     const formatDate = (dateStr: string) => {
       if (!dateStr) return '....................';
       if (dateStr.includes('/')) return dateStr;
@@ -571,16 +587,16 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
         <head>
           <meta charset="utf-8" />
           <style>
-            body { font-family: Arial, sans-serif; color: #000; margin: 16px 24px; font-size: 12px; }
-            .top-logo { text-align: center; margin-bottom: 16px; }
-            .top-logo img { width: 120px; max-width: 120px; height: auto; display: inline-block; }
+            body { font-family: Arial, sans-serif; color: #000; margin: ${isA5 ? '10px 14px' : '16px 24px'}; font-size: ${isA5 ? '9px' : '12px'}; }
+            .top-logo { text-align: center; margin-bottom: ${isA5 ? '8px' : '16px'}; }
+            .top-logo img { width: ${isA5 ? '80px' : '120px'}; max-width: ${isA5 ? '80px' : '120px'}; height: auto; display: inline-block; }
             .header { display: flex; justify-content: center; align-items: center; gap: 8px; margin-bottom: 4px; }
             .logo-left-box { width: 60px; min-width: 60px; }
             .logo-left-box img { width: 100%; height: auto; display: block; }
             .header-center { flex: 1; text-align: center; }
-            .header-top { font-weight: 700; font-size: 14px; letter-spacing: 0.6px; line-height: 1.3; margin-bottom: 2px; }
-            .header-sub { font-size: 13px; margin-top: 2px; }
-            .main-title { font-size: 26px; font-weight: 800; margin: 6px 0 6px; letter-spacing: 0.8px; }
+            .header-top { font-weight: 700; font-size: ${isA5 ? '10px' : '14px'}; letter-spacing: 0.6px; line-height: 1.3; margin-bottom: 2px; }
+            .header-sub { font-size: ${isA5 ? '9px' : '13px'}; margin-top: 2px; }
+            .main-title { font-size: ${isA5 ? '18px' : '26px'}; font-weight: 800; margin: 6px 0 6px; letter-spacing: 0.8px; }
             .subtitle { font-size: 12px; margin-top: 2px; }
             .student-row { margin: 6px 0; font-size: 12px; }
             .student-row strong { text-decoration: underline; }
