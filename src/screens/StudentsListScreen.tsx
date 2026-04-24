@@ -15,7 +15,6 @@ import { Bulletin } from '../types/bulletin';
 import { getStudents, setStudents, addDeletedStudents } from '../storage/studentsRepo';
 import { getBulletins } from '../storage/bulletinsRepo';
 import { getMaxTrimestres, getTrimestresArray } from '../storage/configRepo';
-import { generateDemoStudentsAndBulletins } from '../storage/demoGenerator';
 import { useTheme } from '../theme/ThemeProvider';
 
 type RootStackParamList = {
@@ -122,23 +121,6 @@ export default function StudentsListScreen({ navigation }: Props) {
     ]);
   }
 
-  async function seedStudents() {
-    Alert.alert(
-      'Générer des données de démo',
-      'Cela va créer 20 élèves avec bulletins de test. Continuer ?',
-      [
-        { text: 'Annuler', style: 'cancel' },
-        {
-          text: 'Générer',
-          onPress: async () => {
-            await generateDemoStudentsAndBulletins();
-            await loadStudents();
-          },
-        },
-      ]
-    );
-  }
-
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.container}>
@@ -183,20 +165,6 @@ export default function StudentsListScreen({ navigation }: Props) {
               ))}
             </View>
           </View>
-
-          <Pressable
-            onPress={seedStudents}
-            style={({ pressed }) => [{
-              backgroundColor: pressed ? '#3a7d44' : '#4CAF50',
-              borderRadius: 8,
-              paddingVertical: 8,
-              paddingHorizontal: 14,
-              marginTop: 6,
-              alignSelf: 'flex-start',
-            }]}
-          >
-            <Text style={{ color: '#fff', fontWeight: '700', fontSize: 13 }}>🎓 Générer 20 élèves (démo)</Text>
-          </Pressable>
 
           <View style={styles.sortRow}>
             {(['nom', 'classe', 'anneeScolaire'] as const).map((option) => (
