@@ -300,16 +300,20 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
       prev.map((row) => {
         if (row.id !== id) return row;
         let newValue = value;
-        // Validation pour les champs de note
+        // Pendant la saisie : accepter chiffres + virgule + point
         if (field === 'n1' || field === 'n2' || field === 'exam') {
           if (newValue !== null && newValue !== '') {
-            let num = Number(String(newValue).replace(',', '.'));
-            if (num > 20) {
-              num = 20;
-              Alert.alert('Note invalide', 'La note ne peut pas dépasser 20.');
+            const str = String(newValue);
+            // Autoriser la saisie en cours (ex: "12,", "12,7") — pas de conversion ici
+            const cleaned = str.replace(',', '.');
+            const isPartial = str.endsWith(',') || str.endsWith('.');
+            if (!isPartial) {
+              const num = Number(cleaned);
+              if (!isNaN(num)) {
+                // Pas de clamp ici, laisser l'utilisateur finir
+              }
             }
-            if (num < 0) num = 0;
-            newValue = String(num).replace('.', ',');
+            newValue = str;
           }
         }
         return {
@@ -324,6 +328,24 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
       })
     );
   }
+
+  function finalizeNoteValue(id: string, field: 'n1' | 'n2' | 'exam', value: string | null) {
+    if (value === null || value === '') {
+      setMatieres((prev) => prev.map((row) => row.id !== id ? row : { ...row, [field]: null }));
+      return;
+    }
+    const num = Number(String(value).replace(',', '.'));
+    if (isNaN(num)) {
+      setMatieres((prev) => prev.map((row) => row.id !== id ? row : { ...row, [field]: null }));
+      return;
+    }
+    const clamped = Math.min(20, Math.max(0, num));
+    if (clamped > num) Alert.alert('Note invalide', 'La note ne peut pas dépasser 20.');
+    const formatted = String(clamped).replace('.', ',');
+    setMatieres((prev) => prev.map((row) => row.id !== id ? row : { ...row, [field]: formatted }));
+  }
+
+
 
   function addMatiere() {
     setMatieres((prev) => [
@@ -933,6 +955,7 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
                       <TextInput
                         value={row.n1 !== null ? String(row.n1).replace('.', ',') : ''}
                         onChangeText={(value) => updateMatiere(row.id, 'n1', value === '' ? null : value)}
+                        onBlur={() => finalizeNoteValue(row.id, 'n1', row.n1)}
                         placeholder="0"
                         placeholderTextColor={theme.placeholder}
                         style={[styles.tableCell, styles.cellNote, styles.input, styles.editableInput]}
@@ -942,6 +965,7 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
                       <TextInput
                         value={row.n2 !== null ? String(row.n2).replace('.', ',') : ''}
                         onChangeText={(value) => updateMatiere(row.id, 'n2', value === '' ? null : value)}
+                        onBlur={() => finalizeNoteValue(row.id, 'n2', row.n2)}
                         placeholder="0"
                         placeholderTextColor={theme.placeholder}
                         style={[styles.tableCell, styles.cellNote, styles.input, styles.editableInput]}
@@ -951,6 +975,7 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
                       <TextInput
                         value={row.exam !== null ? String(row.exam).replace('.', ',') : ''}
                         onChangeText={(value) => updateMatiere(row.id, 'exam', value === '' ? null : value)}
+                        onBlur={() => finalizeNoteValue(row.id, 'exam', row.exam)}
                         placeholder="0"
                         placeholderTextColor={theme.placeholder}
                         style={[styles.tableCell, styles.cellNote, styles.input, styles.editableInput]}
