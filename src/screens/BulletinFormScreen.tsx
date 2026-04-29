@@ -21,12 +21,11 @@ import * as Sharing from 'expo-sharing';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { getStudents } from '../storage/studentsRepo';
 import { saveBulletin, getBulletins } from '../storage/bulletinsRepo';
-import { getMaxTrimestres, getTrimestresArray, updateMaxTrimestres, getPeriodName, updatePeriodName } from '../storage/configRepo';
+import { getMaxTrimestres, getTrimestresArray, updateMaxTrimestres } from '../storage/configRepo';
 import { Picker } from '@react-native-picker/picker';
 import { Bulletin } from '../types/bulletin';
 import { Student } from '../types/student';
 import { createId } from '../utils/id';
-import { logoLeftBase64, logoTopBase64 } from '../utils/logosBase64';
 import { useTheme } from '../theme/ThemeProvider';
 
 type StudentsStackParamList = {
@@ -61,10 +60,10 @@ type MatiereRow = {
 
 export default function BulletinFormScreen({ navigation, route }: Props) {
     // Gestion du changement de nombre de trimestres
-    const handleMaxTrimestresChange = (value: 3 | 5) => {
-      setTrimestre(1); // reset au 1er trimestre en premier
+    const handleMaxTrimestresChange = async (value: 3 | 5) => {
       setMaxTrimestres(value);
-      updateMaxTrimestres(value); // asynchrone mais pas besoin d'attendre pour l'UI
+      await updateMaxTrimestres(value);
+      setTrimestre(1); // reset au 1er trimestre si besoin
       setRefreshKey(prev => prev + 1);
     };
   const { theme, hydrateTheme } = useTheme();
@@ -76,7 +75,6 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
   const [student, setStudent] = useState<Student | null>(null);
   const [schoolYear, setSchoolYear] = useState('');
   const [maxTrimestres, setMaxTrimestres] = useState<3 | 5>(5);
-  const [periodName, setPeriodName] = useState('TRIMESTRE');
   const [trimestre, setTrimestre] = useState<1 | 2 | 3 | 4 | 5>(1);
   const [matieres, setMatieres] = useState<MatiereRow[]>(defaultMatieres.map((m) => ({
     ...m,
@@ -91,10 +89,18 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
   const [studentBulletins, setStudentBulletins] = useState<Bulletin[]>([]);
   const [classBulletins, setClassBulletins] = useState<Bulletin[]>([]);
 
-  const formattedDate = student?.dateNaissance ? (() => {
-    const [year, month, day] = student.dateNaissance.split('-');
-    return `${day}/${month}/${year}`;
-  })() : '';
+  const formattedDate = (() => {
+    const raw = student?.dateNaissance;
+    if (!raw || raw === 'undefined') return '';
+    // Format dd/mm/yyyy (stocké par le picker)
+    if (/^\d{2}\/\d{2}\/\d{4}$/.test(raw)) return raw;
+    // Format ISO yyyy-mm-dd (anciens enregistrements)
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+      const [year, month, day] = raw.split('-');
+      return `${day}/${month}/${year}`;
+    }
+    return '';
+  })();
   const [columnN1, setColumnN1] = useState('N1');
   const [columnN2, setColumnN2] = useState('N2');
   const [columnExam, setColumnExam] = useState('EXAM');
@@ -108,10 +114,8 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
     (async () => {
       await hydrateTheme();
       const max = await getMaxTrimestres();
-      const pName = await getPeriodName();
       if (!mounted) return;
       setMaxTrimestres(max);
-      setPeriodName(pName);
       
       if (!studentId) return;
       const list = await getStudents();
@@ -233,11 +237,17 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
       }))
       .filter((item) => item.moyenne !== null)
       .sort((a, b) => (b.moyenne! - a.moyenne!));
-    const position = ranked.findIndex((item) => item.bulletin.studentId === studentId) + 1;
+    const myEntry = ranked.find((item) => item.bulletin.studentId === studentId);
+    if (!myEntry) {
+      return { position: null, total: ranked.length, moyenne: null };
+    }
+    // Ex aequo : rang = nombre d'élèves avec une moyenne STRICTEMENT supérieure + 1
+    // => les élèves à égalité partagent le même rang
+    const position = ranked.filter((item) => item.moyenne! > myEntry.moyenne!).length + 1;
     return {
-      position: position > 0 ? position : null,
+      position,
       total: ranked.length,
-      moyenne: position > 0 ? ranked[position - 1].moyenne : null,
+      moyenne: myEntry.moyenne,
     };
   }
 
@@ -245,14 +255,13 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
 
   const studentBulletinsSummary = useMemo(() => {
     return studentBulletins
-      .filter((b) => b.trimestre <= maxTrimestres)
       .map((bulletin) => ({
         bulletin,
         moyenne: averageBulletin(bulletin),
         rank: computeRank(bulletin.trimestre),
       }))
       .sort((a, b) => a.bulletin.trimestre - b.bulletin.trimestre);
-  }, [studentBulletins, classBulletins, studentId, student, maxTrimestres]);
+  }, [studentBulletins, classBulletins, studentId, student]);
 
   const annualAverage = useMemo(() => {
     const notes = studentBulletinsSummary.filter((item) => item.moyenne !== null);
@@ -300,20 +309,16 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
       prev.map((row) => {
         if (row.id !== id) return row;
         let newValue = value;
-        // Pendant la saisie : accepter chiffres + virgule + point
+        // Validation pour les champs de note
         if (field === 'n1' || field === 'n2' || field === 'exam') {
           if (newValue !== null && newValue !== '') {
-            const str = String(newValue);
-            // Autoriser la saisie en cours (ex: "12,", "12,7") — pas de conversion ici
-            const cleaned = str.replace(',', '.');
-            const isPartial = str.endsWith(',') || str.endsWith('.');
-            if (!isPartial) {
-              const num = Number(cleaned);
-              if (!isNaN(num)) {
-                // Pas de clamp ici, laisser l'utilisateur finir
-              }
+            let num = Number(String(newValue).replace(',', '.'));
+            if (num > 20) {
+              num = 20;
+              Alert.alert('Note invalide', 'La note ne peut pas dépasser 20.');
             }
-            newValue = str;
+            if (num < 0) num = 0;
+            newValue = String(num).replace('.', ',');
           }
         }
         return {
@@ -328,24 +333,6 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
       })
     );
   }
-
-  function finalizeNoteValue(id: string, field: 'n1' | 'n2' | 'exam', value: string | null) {
-    if (value === null || value === '') {
-      setMatieres((prev) => prev.map((row) => row.id !== id ? row : { ...row, [field]: null }));
-      return;
-    }
-    const num = Number(String(value).replace(',', '.'));
-    if (isNaN(num)) {
-      setMatieres((prev) => prev.map((row) => row.id !== id ? row : { ...row, [field]: null }));
-      return;
-    }
-    const clamped = Math.min(20, Math.max(0, num));
-    if (clamped > num) Alert.alert('Note invalide', 'La note ne peut pas dépasser 20.');
-    const formatted = String(clamped).replace('.', ',');
-    setMatieres((prev) => prev.map((row) => row.id !== id ? row : { ...row, [field]: formatted }));
-  }
-
-
 
   function addMatiere() {
     setMatieres((prev) => [
@@ -386,7 +373,16 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
     setRefreshKey(prev => prev + 1);
   }
 
-
+  async function getAssetUrls(): Promise<{ logoLeft: string; logoTop: string }> {
+    try {
+      const logoLeftUri = Image.resolveAssetSource(require('../../assets/logo1.jpg')).uri;
+      const logoTopUri = Image.resolveAssetSource(require('../../assets/logo2.jpg')).uri;
+      return { logoLeft: logoLeftUri, logoTop: logoTopUri };
+    } catch (error) {
+      console.error('Erreur récupération URIs:', error);
+      return { logoLeft: '', logoTop: '' };
+    }
+  }
 
   async function onSave() {
     if (!student) {
@@ -433,13 +429,11 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
     }
   }
 
-  async function exportWithFormat(format: 'A4' | 'A5') {
+  async function onExport() {
     if (!student) return;
     try {
-      const html = await generateBulletinHtml(format);
-      const width = format === 'A4' ? 595 : 420;
-      const height = format === 'A4' ? 842 : 595;
-      const file = await Print.printToFileAsync({ html, width, height });
+      const html = await generateBulletinHtml();
+      const file = await Print.printToFileAsync({ html });
       await Sharing.shareAsync(file.uri, {
         mimeType: 'application/pdf',
         dialogTitle: `Bulletin ${student.nom} ${student.prenom} - T${trimestre}`,
@@ -453,32 +447,18 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
     }
   }
 
-  function onExport() {
-    if (!student) return;
-    Alert.alert(
-      'Format du PDF',
-      'Choisissez le format du bulletin à exporter :',
-      [
-        { text: 'A4 (Standard)', onPress: () => exportWithFormat('A4') },
-        { text: 'A5 (Compact)', onPress: () => exportWithFormat('A5') },
-        { text: 'Annuler', style: 'cancel' },
-      ]
-    );
-  }
-
   function formatBulletinText(): string {
     if (!student) return '';
-    const formatDate = (dateStr: string) => {
-      if (!dateStr) return '....................';
-      if (dateStr.includes('/')) return dateStr;
-      if (dateStr.includes('-')) {
-        const parts = dateStr.split('-');
-        if (parts.length === 3) {
-          const [year, month, day] = parts;
-          return `${day}/${month}/${year}`;
-        }
+    const formatDate = (dateStr: string | undefined | null) => {
+      if (!dateStr || dateStr === 'undefined') return '....................';
+      // Format dd/mm/yyyy (stocké par le picker) → déjà prêt
+      if (/^\d{2}\/\d{2}\/\d{4}$/.test(dateStr)) return dateStr;
+      // Format ISO yyyy-mm-dd (anciens enregistrements)
+      if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+        const [year, month, day] = dateStr.split('-');
+        return `${day}/${month}/${year}`;
       }
-      return dateStr;
+      return '....................';
     };
     const lines: string[] = [];
     lines.push('===== BULLETIN SCOLAIRE =====');
@@ -491,7 +471,7 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
       lines.push(`${numeroPasseLabel}: ${student.numeroPasse}`);
     }
     lines.push(`Année scolaire: ${schoolYear}`);
-    lines.push(`${periodName}: ${trimestre}`);
+    lines.push(`Trimestre: ${trimestre}`);
     lines.push('');
     lines.push('MATIERES | Coef | N1 | N2 | EXAM | MG | Signature');
     lines.push('-'.repeat(80));
@@ -511,31 +491,30 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
     lines.push('Signatures:');
     lines.push('Les Parents,   Le Directeur');
     lines.push('RAKOTOMAVO Naliarison Miarantsoa');
-    if (trimestre === maxTrimestres && evolutionInfo.some((item) => item.moyenne !== null || item.position !== null)) {
+    if (trimestre === 5 && evolutionInfo.some((item) => item.moyenne !== null || item.position !== null)) {
       lines.push('');
       lines.push('ÉVOLUTION DES MOYENNES :');
       evolutionInfo.forEach((item) => {
-        lines.push(`${periodName.substring(0, 4)}${item.trimestre} : ${item.moyenne !== null ? item.moyenne.toFixed(2).replace('.', ',') : '—'} / Position ${item.position ?? '—'} / ${item.total} élèves / Classement: ${item.classement}`);
+        lines.push(`TRIM${item.trimestre} : ${item.moyenne !== null ? item.moyenne.toFixed(2).replace('.', ',') : '—'} / Position ${item.position ?? '—'} / ${item.total} élèves / Classement: ${item.classement}`);
       });
     }
     return lines.join('\n');
   }
 
-  async function generateBulletinHtml(format: 'A4' | 'A5' = 'A4'): Promise<string> {
+  async function generateBulletinHtml(): Promise<string> {
     if (!student) return '';
-    const isA5 = format === 'A5';
-    const formatDate = (dateStr: string) => {
-      if (!dateStr) return '....................';
-      if (dateStr.includes('/')) return dateStr;
-      if (dateStr.includes('-')) {
-        const parts = dateStr.split('-');
-        if (parts.length === 3) {
-          const [year, month, day] = parts;
-          return `${day}/${month}/${year}`;
-        }
+    const formatDate = (dateStr: string | undefined | null) => {
+      if (!dateStr || dateStr === 'undefined') return '....................';
+      // Format dd/mm/yyyy (stocké par le picker) → déjà prêt
+      if (/^\d{2}\/\d{2}\/\d{4}$/.test(dateStr)) return dateStr;
+      // Format ISO yyyy-mm-dd (anciens enregistrements)
+      if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+        const [year, month, day] = dateStr.split('-');
+        return `${day}/${month}/${year}`;
       }
-      return dateStr;
+      return '....................';
     };
+    const { logoLeft: logoLeftUri, logoTop: logoTopUri } = await getAssetUrls();
     const rows = matieres
       .map((row) => {
         const mg = calculateMG(row);
@@ -553,29 +532,29 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
       .join('');
 
     const termLabel =
-      trimestre === maxTrimestres
-        ? `${periodName} FINAL`
-        : trimestre === 1
-        ? `PREMIER ${periodName}`
+      trimestre === 1
+        ? 'PREMIER TRIMESTRE'
         : trimestre === 2
-        ? `DEUXIÈME ${periodName}`
+        ? 'DEUXIÈME TRIMESTRE'
         : trimestre === 3
-        ? `TROISIÈME ${periodName}`
-        : `QUATRIÈME ${periodName}`;
+        ? 'TROISIÈME TRIMESTRE'
+        : trimestre === 4
+        ? 'QUATRIÈME TRIMESTRE'
+        : 'TRIMESTRE FINAL';
 
     const decision = trimestreInfo?.classement ?? '';
     const check = (label: string) => (decision === label ? '☑' : '☐');
 
     // Historique des bulletins pour le trimestre final
     let historySection = '';
-    if (trimestre === maxTrimestres && studentBulletinsSummary.length > 0) {
+    if (trimestre === 5 && studentBulletinsSummary.length > 0) {
       const historyRows = studentBulletinsSummary
         .filter((item) => item.moyenne !== null)
         .map((item) => {
           const evo = evolutionInfo.find(e => e.trimestre === item.bulletin.trimestre);
           return `
           <tr>
-            <td>${periodName.substring(0, 4)}${item.bulletin.trimestre}</td>
+            <td>TRIM${item.bulletin.trimestre}</td>
             <td>${item.moyenne?.toFixed(2).replace('.', ',') ?? ''}</td>
             <td>${item.rank?.position ?? ''}</td>
             <td>${item.rank?.total ?? ''}</td>
@@ -585,11 +564,11 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
         .join('');
 
       historySection = `
-        <div class="history-title">HISTORIQUE DES ÉVALUATIONS</div>
+        <div class="history-title">HISTORIQUE DES BULLETINS</div>
         <table class="history-table">
           <thead>
             <tr>
-              <th>Période</th>
+              <th>Trimestre</th>
               <th>Moyenne</th>
               <th>Rang</th>
               <th>Total élèves</th>
@@ -609,16 +588,16 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
         <head>
           <meta charset="utf-8" />
           <style>
-            body { font-family: Arial, sans-serif; color: #000; margin: ${isA5 ? '10px 14px' : '16px 24px'}; font-size: ${isA5 ? '9px' : '12px'}; }
-            .top-logo { text-align: center; margin-bottom: ${isA5 ? '8px' : '16px'}; }
-            .top-logo img { width: ${isA5 ? '80px' : '120px'}; max-width: ${isA5 ? '80px' : '120px'}; height: auto; display: inline-block; }
+            body { font-family: Arial, sans-serif; color: #000; margin: 16px 24px; font-size: 12px; }
+            .top-logo { text-align: center; margin-bottom: 16px; }
+            .top-logo img { width: 120px; max-width: 120px; height: auto; display: inline-block; }
             .header { display: flex; justify-content: center; align-items: center; gap: 8px; margin-bottom: 4px; }
             .logo-left-box { width: 60px; min-width: 60px; }
             .logo-left-box img { width: 100%; height: auto; display: block; }
             .header-center { flex: 1; text-align: center; }
-            .header-top { font-weight: 700; font-size: ${isA5 ? '10px' : '14px'}; letter-spacing: 0.6px; line-height: 1.3; margin-bottom: 2px; }
-            .header-sub { font-size: ${isA5 ? '9px' : '13px'}; margin-top: 2px; }
-            .main-title { font-size: ${isA5 ? '18px' : '26px'}; font-weight: 800; margin: 6px 0 6px; letter-spacing: 0.8px; }
+            .header-top { font-weight: 700; font-size: 14px; letter-spacing: 0.6px; line-height: 1.3; margin-bottom: 2px; }
+            .header-sub { font-size: 13px; margin-top: 2px; }
+            .main-title { font-size: 26px; font-weight: 800; margin: 6px 0 6px; letter-spacing: 0.8px; }
             .subtitle { font-size: 12px; margin-top: 2px; }
             .student-row { margin: 6px 0; font-size: 12px; }
             .student-row strong { text-decoration: underline; }
@@ -665,11 +644,11 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
         </head>
         <body>
           <div class="top-logo">
-            <img src="${logoTopBase64}" alt="Logo central" />
+            <img src="${logoTopUri}" alt="Logo central" />
           </div>
           <div class="header">
             <div class="logo-left-box">
-              <img src="${logoLeftBase64}" alt="Logo gauche" />
+              <img src="${logoLeftUri}" alt="Logo gauche" />
             </div>
             <div class="header-center">
               <div class="header-top">CIRCONSCRIPTION SCOLAIRE AMBATOLAMPY</div>
@@ -737,7 +716,7 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
             <div>Les Parents,</div>
             <div class="director-sign">
               <div>Le Directeur</div>
-              <div>_____________________________</div>
+              <div style="height: 22px;"></div>
               <strong>RAKOTOMAVO Naliarison Miarantsoa</strong>
             </div>
           </div>
@@ -755,32 +734,17 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <View style={{ padding: 10, flexDirection: 'row', alignItems: 'center', backgroundColor: '#f5f5f5', flexWrap: 'wrap', gap: 10 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <Text style={{ marginRight: 10, fontWeight: 'bold' }}>Nombre de périodes :</Text>
-          <Picker
-            selectedValue={maxTrimestres}
-            style={{ width: 120 }}
-            onValueChange={(itemValue) => handleMaxTrimestresChange(itemValue)}
-            mode="dropdown"
-          >
-            <Picker.Item label="3" value={3} />
-            <Picker.Item label="5" value={5} />
-          </Picker>
-        </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <Text style={{ marginRight: 10, fontWeight: 'bold' }}>Terme :</Text>
-          <TextInput
-            style={{ backgroundColor: '#fff', borderWidth: 1, borderColor: '#ccc', borderRadius: 6, paddingHorizontal: 10, paddingVertical: 5, width: 120, color: '#000' }}
-            value={periodName}
-            onChangeText={(t) => {
-              const val = t.toUpperCase();
-              setPeriodName(val);
-              updatePeriodName(val);
-            }}
-            placeholder="TRIMESTRE"
-          />
-        </View>
+      <View style={{ padding: 10, flexDirection: 'row', alignItems: 'center', backgroundColor: '#f5f5f5' }}>
+        <Text style={{ marginRight: 10, fontWeight: 'bold' }}>Nombre de trimestres :</Text>
+        <Picker
+          selectedValue={maxTrimestres}
+          style={{ width: 120 }}
+          onValueChange={(itemValue) => handleMaxTrimestresChange(itemValue)}
+          mode="dropdown"
+        >
+          <Picker.Item label="3" value={3} />
+          <Picker.Item label="5" value={5} />
+        </Picker>
       </View>
       <KeyboardAvoidingView
         style={styles.safe}
@@ -807,17 +771,7 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
                     placeholder="Ex: 2025-2026"
                     placeholderTextColor={theme.placeholder}
                     value={schoolYear}
-                    onChangeText={(v) => {
-                      let formatted = v.replace(/[^0-9-]/g, '');
-                      if (formatted.length >= 4 && !formatted.includes('-')) {
-                        formatted = formatted.slice(0, 4) + '-' + formatted.slice(4);
-                      }
-                      if (formatted.length > 9) {
-                        formatted = formatted.slice(0, 9);
-                      }
-                      setSchoolYear(formatted);
-                    }}
-                    keyboardType="numeric"
+                    onChangeText={setSchoolYear}
                     maxLength={9}
                   />
                 </View>
@@ -834,7 +788,7 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
               <View style={styles.metaRow}>
                 <View style={styles.metaItem}>
                   <Text style={styles.label}>Date de naissance:</Text>
-                  <Text style={styles.value}>{formattedDate || '....................'}</Text>
+                  <Text style={styles.value}>{formattedDate || ''}</Text>
                 </View>
                 <View style={styles.metaItem}>
                   <Text style={styles.label}>CLASSE:</Text>
@@ -894,11 +848,11 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
           {/* Tableau des matières */}
           <View style={styles.tableCard}>
             <Text style={styles.tableTitle}>
-              {trimestre === maxTrimestres ? `${periodName} FINAL` :
-                trimestre === 1 ? `PREMIER ${periodName}` :
-                trimestre === 2 ? `DEUXIÈME ${periodName}` :
-                trimestre === 3 ? `TROISIÈME ${periodName}` :
-                `QUATRIÈME ${periodName}`}
+              {trimestre === 1 && 'PREMIER TRIMESTRE'}
+              {trimestre === 2 && 'DEUXIÈME TRIMESTRE'}
+              {trimestre === 3 && 'TROISIÈME TRIMESTRE'}
+              {trimestre === 4 && 'QUATRIÈME TRIMESTRE'}
+              {trimestre === 5 && 'TRIMESTRE FINAL'}
             </Text>
             <ScrollView horizontal={!isTablet} showsHorizontalScrollIndicator={false}>
               <View style={[styles.tableInner, isTablet && styles.tableInnerFull]}>
@@ -955,7 +909,6 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
                       <TextInput
                         value={row.n1 !== null ? String(row.n1).replace('.', ',') : ''}
                         onChangeText={(value) => updateMatiere(row.id, 'n1', value === '' ? null : value)}
-                        onBlur={() => finalizeNoteValue(row.id, 'n1', row.n1)}
                         placeholder="0"
                         placeholderTextColor={theme.placeholder}
                         style={[styles.tableCell, styles.cellNote, styles.input, styles.editableInput]}
@@ -965,7 +918,6 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
                       <TextInput
                         value={row.n2 !== null ? String(row.n2).replace('.', ',') : ''}
                         onChangeText={(value) => updateMatiere(row.id, 'n2', value === '' ? null : value)}
-                        onBlur={() => finalizeNoteValue(row.id, 'n2', row.n2)}
                         placeholder="0"
                         placeholderTextColor={theme.placeholder}
                         style={[styles.tableCell, styles.cellNote, styles.input, styles.editableInput]}
@@ -975,7 +927,6 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
                       <TextInput
                         value={row.exam !== null ? String(row.exam).replace('.', ',') : ''}
                         onChangeText={(value) => updateMatiere(row.id, 'exam', value === '' ? null : value)}
-                        onBlur={() => finalizeNoteValue(row.id, 'exam', row.exam)}
                         placeholder="0"
                         placeholderTextColor={theme.placeholder}
                         style={[styles.tableCell, styles.cellNote, styles.input, styles.editableInput]}
@@ -1016,7 +967,7 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
             <Text style={styles.rankValue}>{rankInfo?.position != null ? `Rang ${rankInfo.position} / ${rankInfo.total}` : '—'}</Text>
           </View>
 
-          {trimestre === maxTrimestres && (
+          {trimestre === 5 && (
             <View style={styles.card}>
               <Text style={styles.label}>Historique des bulletins</Text>
               {studentBulletinsSummary.length === 0 ? (
@@ -1026,7 +977,7 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
                   const evo = evolutionInfo.find(e => e.trimestre === bulletin.trimestre);
                   return (
                     <View key={bulletin.id} style={styles.historyRow}>
-                      <Text style={styles.historyCell}>{periodName.substring(0, 4)}{bulletin.trimestre}</Text>
+                      <Text style={styles.historyLabel}>T{bulletin.trimestre}</Text>
                       <Text style={styles.historyValue}>Moyenne: {moyenne !== null ? moyenne.toFixed(2).replace('.', ',') : '—'}</Text>
                       <Text style={styles.historyValue}>Rang: {rank?.position != null ? `${rank.position} / ${rank.total}` : '—'}</Text>
                       <Text style={styles.historyValue}>Décision: {evo?.classement || '—'}</Text>

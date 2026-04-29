@@ -261,41 +261,8 @@ function deduplicateBulletins(bulletins: Bulletin[]): Bulletin[] {
   });
 }
 
-function ensureAllTrimesterBulletins(existing: Bulletin[]): Bulletin[] {
-  const groupedByStudent = existing.reduce<Record<string, Bulletin[]>>((acc, bulletin) => {
-    acc[bulletin.studentId] = acc[bulletin.studentId] || [];
-    acc[bulletin.studentId].push(bulletin);
-    return acc;
-  }, {});
-
-  const result: Bulletin[] = [];
-
-  Object.entries(groupedByStudent).forEach(([studentId, bulletins]) => {
-    const presentTrimestres = new Set(bulletins.map((b) => b.trimestre));
-    if (presentTrimestres.size === 0) {
-      return;
-    }
-
-    const baseBulletin = bulletins.find((b) => b.trimestre === 1) ?? bulletins[0];
-    if (!baseBulletin) {
-      return;
-    }
-
-    TRIMESTRES.forEach((trimestre) => {
-      const existingBulletin = bulletins.find((b) => b.trimestre === trimestre);
-
-      if (existingBulletin) {
-        // Bulletin existe déjà, on le garde tel quel pour éviter les doublons
-        result.push(existingBulletin);
-      } else {
-        // Créer le bulletin manquant
-        result.push(createBulletinVariant(baseBulletin, trimestre));
-      }
-    });
-  });
-
-  return result;
-}
+// Supprimé : la génération automatique des trimestres manquants est désactivée.
+// Les bulletins des autres trimestres doivent être saisis manuellement par l'utilisateur.
 
 export async function getBulletins(): Promise<Bulletin[]> {
   const data = await readEncryptedJson<Bulletin[]>([], BULLETIN_KEY);
@@ -331,12 +298,6 @@ export async function getBulletins(): Promise<Bulletin[]> {
       }
     } catch (error) {
       console.error('Erreur lors de la gestion des données d\'exemple de bulletins:', error);
-    }
-  } else {
-    const completed = ensureAllTrimesterBulletins(bulletins);
-    if (completed.length !== bulletins.length) {
-      bulletins = completed;
-      await setBulletins(bulletins);
     }
   }
 
