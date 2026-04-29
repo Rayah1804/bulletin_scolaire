@@ -27,6 +27,7 @@ import { Bulletin } from '../types/bulletin';
 import { Student } from '../types/student';
 import { createId } from '../utils/id';
 import { useTheme } from '../theme/ThemeProvider';
+import { logoLeftBase64, logoTopBase64 } from '../utils/logosBase64';
 
 type StudentsStackParamList = {
   StudentsList: undefined;
@@ -312,13 +313,20 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
         // Validation pour les champs de note
         if (field === 'n1' || field === 'n2' || field === 'exam') {
           if (newValue !== null && newValue !== '') {
-            let num = Number(String(newValue).replace(',', '.'));
-            if (num > 20) {
-              num = 20;
-              Alert.alert('Note invalide', 'La note ne peut pas dépasser 20.');
+            let strVal = String(newValue).replace(',', '.');
+            let num = Number(strVal);
+            if (!Number.isNaN(num)) {
+              if (num > 20) {
+                newValue = '20';
+                Alert.alert('Note invalide', 'La note ne peut pas dépasser 20.');
+              } else if (num < 0) {
+                newValue = '0';
+              } else {
+                newValue = String(newValue).replace('.', ',');
+              }
+            } else {
+              newValue = String(newValue).replace('.', ',');
             }
-            if (num < 0) num = 0;
-            newValue = String(num).replace('.', ',');
           }
         }
         return {
@@ -374,14 +382,7 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
   }
 
   async function getAssetUrls(): Promise<{ logoLeft: string; logoTop: string }> {
-    try {
-      const logoLeftUri = Image.resolveAssetSource(require('../../assets/logo1.jpg')).uri;
-      const logoTopUri = Image.resolveAssetSource(require('../../assets/logo2.jpg')).uri;
-      return { logoLeft: logoLeftUri, logoTop: logoTopUri };
-    } catch (error) {
-      console.error('Erreur récupération URIs:', error);
-      return { logoLeft: '', logoTop: '' };
-    }
+    return { logoLeft: logoLeftBase64, logoTop: logoTopBase64 };
   }
 
   async function onSave() {
