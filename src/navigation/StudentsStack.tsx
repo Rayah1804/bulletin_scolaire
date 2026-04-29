@@ -5,6 +5,7 @@ import StudentsSearchScreen from '../screens/StudentsSearchScreen';
 import StudentFormScreen from '../screens/StudentFormScreen';
 import BulletinFormScreen from '../screens/BulletinFormScreen';
 import StudentsTrashScreen from '../screens/StudentsTrashScreen';
+import SettingsScreen from '../screens/SettingsScreen';
 import { useTheme } from '../theme/ThemeProvider';
 
 export type StudentsStackParamList = {
@@ -13,9 +14,10 @@ export type StudentsStackParamList = {
   StudentForm: { id?: string } | undefined;
   BulletinForm: { studentId: string } | undefined;
   StudentsTrash: undefined;
+  Settings: undefined;
 };
-
 const Stack = createNativeStackNavigator<StudentsStackParamList>();
+
 
 export default function StudentsStack() {
   const { theme } = useTheme();
@@ -52,6 +54,11 @@ export default function StudentsStack() {
         name="StudentsTrash"
         component={StudentsTrashScreen}
         options={{ title: 'Corbeille des étudiants' }}
+      />
+      <Stack.Screen
+        name="Settings"
+        component={SettingsScreen}
+        options={{ title: 'Paramètres' }}
       />
     </Stack.Navigator>
   );

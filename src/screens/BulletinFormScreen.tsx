@@ -18,6 +18,9 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
+import * as FileSystem from 'expo-file-system';
+import * as DocumentPicker from 'expo-document-picker';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { getStudents } from '../storage/studentsRepo';
 import { saveBulletin, getBulletins } from '../storage/bulletinsRepo';
@@ -435,6 +438,8 @@ export default function BulletinFormScreen({ navigation, route }: Props) {
     try {
       const html = await generateBulletinHtml();
       const file = await Print.printToFileAsync({ html });
+
+      // Partage directement le fichier PDF généré
       await Sharing.shareAsync(file.uri, {
         mimeType: 'application/pdf',
         dialogTitle: `Bulletin ${student.nom} ${student.prenom} - T${trimestre}`,

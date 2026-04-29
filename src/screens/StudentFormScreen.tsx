@@ -396,8 +396,7 @@ export default function StudentFormScreen(props?: Props) {
   );
 }
 
-function Field(props: {
-  ref?: React.RefObject<TextInput | null>;
+const Field = React.forwardRef<TextInput, {
   styles: ReturnType<typeof createStyles>;
   label: string;
   value: string;
@@ -408,12 +407,12 @@ function Field(props: {
   returnKeyType?: 'next' | 'done' | 'default';
   onSubmitEditing?: () => void;
   maxLength?: number;
-}) {
+}>((props, ref) => {
   return (
     <View style={props.styles.field}>
       <Text style={props.styles.label}>{props.label}</Text>
       <TextInput
-        ref={props.ref}
+        ref={ref}
         value={props.value}
         onChangeText={props.onChange}
         placeholder={props.placeholder}
@@ -429,22 +428,22 @@ function Field(props: {
       />
     </View>
   );
-}
+});
 
-function DateField(props: {
-  ref?: React.RefObject<View | null>;
+
+const DateField = React.forwardRef<View, {
   styles: ReturnType<typeof createStyles>;
   currentValue: string;
   onPress: () => void;
   textColor: string;
   placeholderColor: string;
   onSubmitEditing?: () => void;
-}) {
+}>((props, ref) => {
   return (
     <View style={props.styles.field}>
       <Text style={props.styles.label}>Date de naissance</Text>
       <Pressable
-        ref={props.ref}
+        ref={ref}
         onPress={props.onPress}
         style={props.styles.input}
       >
@@ -454,7 +453,8 @@ function DateField(props: {
       </Pressable>
     </View>
   );
-}
+});
+
 
 function ActionButton(props: {
   styles: ReturnType<typeof createStyles>;
